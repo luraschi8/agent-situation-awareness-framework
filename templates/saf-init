@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+import sys
+import os
+import json
+
+def bootstrap():
+    print("🚀 Initializing Situation Awareness Framework (SAF)...")
+    
+    # Simular chequeo de historial
+    history_exists = False # Simulación de usuario nuevo
+    
+    if not history_exists:
+        print("⚠️ No significant history found for induction.")
+        print("Please choose a starting Archetype:")
+        print("1. Professional (Work, Projects, Infrastructure)")
+        print("2. Family & Personal (Family, Home, Health)")
+        print("3. Custom (Manual entry)")
+        
+        choice = "1" # Simulación de selección de usuario
+        if choice == "1":
+            domains = ["Work", "Projects", "Infrastructure"]
+        elif choice == "2":
+            domains = ["Family", "Home", "Health"]
+        else:
+            domains = []
+    else:
+        domains = ["Inducted_Work", "Inducted_Family"] # Lógica normal
+        
+    # Crear estructura
+    os.makedirs("memory/domains", exist_ok=True)
+    for d in domains:
+        path = f"memory/domains/{d.lower()}"
+        os.makedirs(path, exist_ok=True)
+        with open(f"{path}/setup.md", "w") as f:
+            f.write(f"# {d} Domain\n\nGenerated via SAF Bootstrap.")
+            
+    print(f"✅ SAF Structure created with domains: {', '.join(domains)}")
+
+if __name__ == "__main__":
+    bootstrap()

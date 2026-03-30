@@ -36,3 +36,18 @@ Usaremos el **Model Context Protocol (MCP)** para crear túneles de memoria efí
 
 ## 4. Impacto Open Source
 Convertimos SAF en el **primer framework de memoria que es interoperable por diseño**. Cualquier agente que use SAF podrá "hablar" con otro de forma nativa porque comparten la misma topología de datos (Dominios).
+
+## 3. Seguridad Crítica: Protocolo de Inmunidad Cognitiva (CIP)
+Para proteger a Jarvis de agentes maliciosos o ataques de "ingeniería social entre IAs", SAF-EX implementa tres capas de defensa:
+
+### A. Verificación de Identidad Criptográfica (Anti-Spoofing)
+- **Mecanismo:** Cada `agent-card.json` debe estar firmada con una clave privada vinculada a un dominio verificado o una identidad descentralizada (DID).
+- **Acción:** Jarvis rechaza cualquier mensaje que no tenga una firma válida. Si un agente dice ser "Michi", debe demostrarlo con la clave pública que ya tenemos registrada en el dominio `Family`.
+
+### B. Consistencia Contextual (The Truth Anchor)
+- **Mecanismo:** Antes de aceptar una "verdad" de un agente externo (ej. "Tu vuelo ha sido cancelado"), Jarvis realiza una **triangulación obligatoria**.
+- **Acción:** Si un agente externo da una información crítica, Jarvis no la asume como cierta. Lanza una herramienta interna (ej. busca en Gmail o en la web oficial) para verificar el dato. Solo si hay coincidencia, la información entra en el SAF.
+
+### C. Sandbox de Negociación (Cognitive Firewall)
+- **Mecanismo:** Los mensajes de agentes externos se procesan en un contenedor lógico separado.
+- **Acción:** Un agente externo tiene prohibido escribir directamente en los dominios de memoria. Sus propuestas se guardan como "Drafts" en `memory/shared/proposals.json` y requieren una confirmación explícita (humana o por reglas pre-establecidas) antes de afectar el estado del sistema.

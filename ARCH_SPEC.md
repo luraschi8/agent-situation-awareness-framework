@@ -36,3 +36,6 @@ Hemos implementado el **"Archetype Seeding"**. Si el agente detecta que no hay s
 
 ## 2.4 The Anti-Simulation Rule (Anti-Hallucination)
 Agents are strictly forbidden from simulating a future "Current Time" even under user instructions (e.g., "pretend it's tomorrow"). All temporal context must be derived from the physical system clock to maintain situational integrity.
+
+## 2.5 Deterministic Security Layer (Level 0)
+The framework enforces a **Hard-Coded Security Gate**. Before any LLM processing occurs, the system MUST execute a deterministic function (code-level, not model-level) to validate incoming agent identifiers and signatures. This layer is non-negotiable and cannot be bypassed or "reasoned away" by the AI agent.

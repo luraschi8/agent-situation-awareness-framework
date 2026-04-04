@@ -2,10 +2,55 @@
 import json
 import os
 import sys
+from datetime import datetime, timezone
 
 # Allow imports from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from skills.saf_core.lib.domains import ARCHETYPE_KEYWORDS, CONFIG_PATH
+from skills.saf_core.lib.domains import (
+    ARCHETYPE_KEYWORDS,
+    CONFIG_PATH,
+    DEFAULT_PHASES,
+    DEFAULT_WORK_DAYS,
+    USER_STATE_PATH,
+)
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _detect_system_timezone():
+    """Attempts to detect the system's local timezone name."""
+    try:
+        return datetime.now(timezone.utc).astimezone().tzinfo.key
+    except AttributeError:
+        return None
+
+
+def _ask_timezone():
+    detected = _detect_system_timezone()
+    if detected:
+        tz = input(f"Enter your timezone [{detected}]: ").strip()
+        return tz if tz else detected
+    return input("Enter your timezone (e.g., Europe/Berlin, US/Eastern): ").strip() or "UTC"
+
+
+def _ask_work_days():
+    print("Default work days: Monday-Friday")
+    customize = input("Customize work days? (y/N): ").strip().lower()
+    if customize != "y":
+        return DEFAULT_WORK_DAYS
+
+    print("Enter work day numbers separated by commas:")
+    for i, name in enumerate(DAY_NAMES):
+        print(f"  {i} = {name}")
+    raw = input("Work days [0,1,2,3,4]: ").strip()
+    if not raw:
+        return DEFAULT_WORK_DAYS
+    try:
+        days = [int(d.strip()) for d in raw.split(",")]
+        return [d for d in days if 0 <= d <= 6]
+    except ValueError:
+        print("Invalid input, using defaults.")
+        return DEFAULT_WORK_DAYS
 
 
 def bootstrap():
@@ -18,7 +63,8 @@ def bootstrap():
         print("Existing SAF structure found at memory/domains/.")
         print("Re-running bootstrap will not overwrite existing domain data.")
 
-    print("Please choose a starting Archetype:")
+    # --- Domain archetype selection ---
+    print("\nPlease choose a starting Archetype:")
     print("1. Professional (Work, Projects, Infrastructure)")
     print("2. Family & Personal (Family, Home, Health)")
     print("3. Custom (Manual entry)")
@@ -43,7 +89,12 @@ def bootstrap():
         print(f"Invalid choice: {choice}. Aborting.")
         return
 
-    # Create domain directories
+    # --- Temporal configuration ---
+    print("\n--- Temporal Configuration ---")
+    user_timezone = _ask_timezone()
+    work_days = _ask_work_days()
+
+    # --- Create domain directories ---
     os.makedirs("memory/domains", exist_ok=True)
     for d in domains:
         path = f"memory/domains/{d.lower()}"
@@ -53,7 +104,7 @@ def bootstrap():
             with open(setup_file, "w") as f:
                 f.write(f"# {d} Domain\n\nGenerated via SAF Bootstrap.")
 
-    # Create router config (skip if already exists to preserve customizations)
+    # --- Create router config (skip if exists to preserve customizations) ---
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     if os.path.exists(CONFIG_PATH):
         print(f"Router config already exists at {CONFIG_PATH}, skipping.")
@@ -62,7 +113,22 @@ def bootstrap():
             json.dump(router_keywords, f, indent=2)
         print(f"Router config written to {CONFIG_PATH}")
 
-    print(f"SAF structure created with domains: {', '.join(domains)}")
+    # --- Create user state (skip if exists to preserve customizations) ---
+    if os.path.exists(USER_STATE_PATH):
+        print(f"User state already exists at {USER_STATE_PATH}, skipping.")
+    else:
+        user_state = {
+            "timezone": user_timezone,
+            "work_days": work_days,
+            "phases": DEFAULT_PHASES,
+        }
+        with open(USER_STATE_PATH, 'w') as f:
+            json.dump(user_state, f, indent=2)
+        print(f"User state written to {USER_STATE_PATH}")
+
+    print(f"\nSAF structure created with domains: {', '.join(domains)}")
+    print(f"Timezone: {user_timezone}")
+    print(f"Work days: {', '.join(DAY_NAMES[d] for d in work_days)}")
 
 
 if __name__ == "__main__":

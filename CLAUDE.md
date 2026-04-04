@@ -18,6 +18,7 @@ python3 -m unittest discover tests
 python3 -m unittest tests.test_crypto_immunity
 python3 -m unittest tests.test_ledger
 python3 -m unittest tests.test_router
+python3 -m unittest tests.test_temporal
 python3 -m unittest tests.test_temporal_v31
 ```
 
@@ -41,7 +42,7 @@ Every module and feature must include unit tests as part of its implementation �
 python3 templates/saf-init
 ```
 
-Creates the `memory/domains/` directory structure with archetype-based domain folders. Prompts for archetype selection interactively.
+Creates the `memory/domains/` directory structure with archetype-based domain folders. Prompts for archetype selection, timezone, and work days interactively. Generates `memory/shared/router-config.json` and `memory/shared/user-state.json`.
 
 ## Architecture
 
@@ -49,7 +50,7 @@ Creates the `memory/domains/` directory structure with archetype-based domain fo
 
 Every message flows through this sequence:
 
-1. **HEARTBEAT Step 0 (Temporal Awareness)** — Mandatory sync with system clock. Determines timezone, day phase (`MORNING_PRIME`, `NIGHT_WATCH`, etc.), and day type (workday/weekend). The LLM never generates temporal context — only the physical clock is trusted.
+1. **HEARTBEAT Step 0 (Temporal Awareness)** — `temporal.py` syncs with the system clock. Resolves user timezone, day phase (`MORNING`, `AFTERNOON`, `EVENING`, `NIGHT`, `NIGHT_LATE`), and day type (workday/rest_day). Configuration in `memory/shared/user-state.json` — timezone, work days, and phase boundaries are all configurable. The LLM never generates temporal context.
 2. **Layer 0 Security (Deterministic)** — `crypto_engine.py` and `security.py` validate message envelopes (HMAC-SHA256 signatures, 30-second replay window, sender identity) before any LLM processing. This is non-negotiable code-level validation.
 3. **Intent Routing** — `router.py` classifies the message into domains (work, family, projects, infrastructure) via keyword matching to select which memory fragments to inject into context.
 4. **Deduplication** — `ledger.py` and `coordinator.py` check `daily-actions.json` and `collective-ledger.json` to prevent duplicate proactive actions across restarts and across agents.

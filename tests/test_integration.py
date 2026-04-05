@@ -261,9 +261,9 @@ class TestDomainRouting(_IntegrationFixture):
 
     def test_work_message_matches_work_domain(self):
         agent = self.new_agent()
-        # Note: router uses word-boundary matching, so singular keyword
-        # "meeting" does not match plural "meetings". Use exact forms.
-        briefing = agent.receive_message("I have a meeting at 3pm")
+        # Uses plural "meetings" to verify router.COMMON_SUFFIXES works
+        # end-to-end: plural/verb forms should match singular keywords.
+        briefing = agent.receive_message("I have several meetings today")
 
         self.assertIn("**work**", briefing)
         self.assertIn("`setup.md`", briefing)
@@ -334,13 +334,13 @@ class TestFullRealisticSession(_IntegrationFixture):
         initial_briefing = self.workspace.read_briefing()
         self.assertIn("Nothing yet", initial_briefing)
 
-        # --- Turn 2: user asks about work, agent sends briefing ---
-        agent.receive_message("Do I have a meeting scheduled?")
+        # --- Turn 2: user asks about work (plural form), agent responds ---
+        agent.receive_message("What meetings do I have this morning?")
         self.assertIn("**work**", agent.last_briefing)
         agent.respond_with_action("work_briefing", "sent")
 
-        # --- Turn 3: user asks about a project ---
-        agent.receive_message("How's the deploy going?")
+        # --- Turn 3: user asks about a project (verb form) ---
+        agent.receive_message("Are we deploying today?")
         self.assertIn("**projects**", agent.last_briefing)
         # work_briefing should now appear as blocked
         self.assertIn("work_briefing", agent.last_briefing)

@@ -63,11 +63,91 @@ class TestRouterDefaultKeywords(unittest.TestCase):
         self.assertIn("infrastructure", get_relevant_domains("The SERVER is down"))
 
     def test_no_substring_false_positive(self):
+        # "home" keyword must NOT match "homework"
         self.assertNotIn("infrastructure", get_relevant_domains("I need to do homework"))
+        # "report" keyword must NOT match "reportedly"
         self.assertNotIn("work", get_relevant_domains("She reportedly left early"))
+        # "home" must not match "homepage"
+        self.assertNotIn("infrastructure", get_relevant_domains("Check the homepage"))
 
     def test_whole_word_match(self):
         self.assertIn("infrastructure", get_relevant_domains("I'm heading home now"))
+
+
+class TestRouterSuffixMatching(unittest.TestCase):
+    """Tests that the router matches common English suffixes (plurals,
+    verb forms) without falling back to lemmatization or introducing
+    substring false positives."""
+
+    # --- Plural forms ---
+
+    def test_plural_meeting(self):
+        self.assertIn("work", get_relevant_domains("I have several meetings today"))
+
+    def test_plural_deadline(self):
+        self.assertIn("work", get_relevant_domains("My deadlines are piling up"))
+
+    def test_plural_home(self):
+        self.assertIn("infrastructure", get_relevant_domains("I own two homes"))
+
+    def test_plural_server(self):
+        self.assertIn("infrastructure", get_relevant_domains("All our servers are ready"))
+
+    # --- Verb forms (-ed) ---
+
+    def test_past_tense_deploy(self):
+        self.assertIn("projects", get_relevant_domains("I deployed the fix"))
+
+    def test_past_tense_report(self):
+        self.assertIn("work", get_relevant_domains("She reported the bug"))
+
+    # --- Verb forms (-ing) ---
+
+    def test_present_participle_deploy(self):
+        self.assertIn("projects", get_relevant_domains("I am deploying the app"))
+
+    def test_present_participle_code(self):
+        self.assertIn("projects", get_relevant_domains("I am coding right now"))
+
+    def test_present_participle_report(self):
+        self.assertIn("work", get_relevant_domains("I am reporting the metrics"))
+
+    # --- -es plurals ---
+
+    def test_es_plural_with_custom_keyword(self):
+        custom = {"food": ["dish"]}
+        self.assertIn("food", get_relevant_domains("I love these dishes", domain_keywords=custom))
+
+    # --- False positives must still be rejected ---
+
+    def test_home_does_not_match_homework(self):
+        self.assertNotIn("infrastructure", get_relevant_domains("I need to do homework"))
+
+    def test_home_does_not_match_homepage(self):
+        self.assertNotIn("infrastructure", get_relevant_domains("Check the homepage"))
+
+    def test_home_does_not_match_homeowner(self):
+        self.assertNotIn("infrastructure", get_relevant_domains("The homeowner called"))
+
+    def test_report_does_not_match_reportedly(self):
+        self.assertNotIn("work", get_relevant_domains("She reportedly left early"))
+
+    def test_report_does_not_match_reportage(self):
+        self.assertNotIn("work", get_relevant_domains("The reportage was biased"))
+
+    def test_meeting_does_not_match_meetinghouse(self):
+        self.assertNotIn("work", get_relevant_domains("The old meetinghouse is closed"))
+
+    def test_gym_does_not_match_gymnasium(self):
+        # Note: this relies on "gym" being in the family archetype
+        from skills.saf_core.lib.domains import ARCHETYPE_KEYWORDS
+        family_kw = ARCHETYPE_KEYWORDS["family"]
+        self.assertNotIn("health", get_relevant_domains("The gymnasium is closed", domain_keywords=family_kw))
+
+    def test_deploy_does_not_match_deployment(self):
+        # -ment is not in COMMON_SUFFIXES so "deployment" as a noun
+        # does not match "deploy" — this is intentional to limit false positives
+        self.assertNotIn("projects", get_relevant_domains("The deployment is scheduled"))
 
 
 class TestRouterCustomKeywords(unittest.TestCase):

@@ -88,34 +88,40 @@ consumes it and acts on it.
 │    │                    │   (saf_core)  │ user-state.json. Returns    │
 │    │                    │               │ utc, local, phase, day_type │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 1  │ DEDUP LOOKUP       │ DETERMINISTIC │ Read collective-ledger.json │
+│ 1  │ ACTION EVALUATION  │ DETERMINISTIC │ Filter proactive-actions    │
+│    │                    │   (saf_core)  │ registry by trigger conds.  │
+│    │                    │               │ Returns applicable actions  │
+├────┼────────────────────┼───────────────┼─────────────────────────────┤
+│ 2  │ DEDUP LOOKUP       │ DETERMINISTIC │ Read collective-ledger.json │
 │    │                    │   (saf_core)  │ Returns today's actions     │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 2  │ DOMAIN ROUTING     │ DETERMINISTIC │ Regex match message vs      │
-│    │                    │   (saf_core)  │ router-config.json. Returns │
-│    │                    │               │ relevant domain paths       │
+│ 3  │ RELEVANCE GATE     │ DETERMINISTIC │ Apply user-state rules      │
+│    │                    │   (saf_core)  │ (mode, suppressions) +      │
+│    │                    │               │ dedup. Returns blocked and  │
+│    │                    │               │ available actions           │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 3  │ RELEVANCE GATE     │ DETERMINISTIC │ Apply user-state rules.     │
-│    │                    │   (saf_core)  │ Returns blocked_actions     │
+│ 4  │ DOMAIN ROUTING     │ DETERMINISTIC │ Regex match message vs      │
+│    │                    │   (saf_core)  │ router-config.json. Merge   │
+│    │                    │               │ with action-sourced domains │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
 │    │ ═══ HANDOFF ═══    │               │                             │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 4  │ DOMAIN LOADING     │ AGENTIC       │ Agent reads files SAF       │
+│ 5  │ DOMAIN LOADING     │ AGENTIC       │ Agent reads files SAF       │
 │    │                    │   (agent)     │ pointed to, using its own   │
 │    │                    │               │ tools or sub-agents         │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 5  │ REASONING          │ AGENTIC       │ Agent's LLM processes       │
+│ 6  │ REASONING          │ AGENTIC       │ Agent's LLM processes       │
 │    │                    │   (agent)     │ loaded context + user msg   │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
 │    │ ═══ HANDBACK ═══   │               │                             │
 ├────┼────────────────────┼───────────────┼─────────────────────────────┤
-│ 6  │ LEDGER WRITE       │ DETERMINISTIC │ Parse agent response for    │
+│ 7  │ LEDGER WRITE       │ DETERMINISTIC │ Parse agent response for    │
 │    │                    │   (saf_core)  │ <saf-action/> tags, append  │
 │    │                    │               │ to collective-ledger.json   │
 └────┴────────────────────┴───────────────┴─────────────────────────────┘
 ```
 
-Steps 0–3 and 6 run in `saf_core.pipeline`. Steps 4–5 run in the agent.
+Steps 0–4 and 7 run in `saf_core.pipeline`. Steps 5–6 run in the agent.
 The adapter (e.g., `saf_openclaw`) is the thin glue that connects them.
 
 ---
@@ -130,8 +136,8 @@ def process(message: str, host: SAFHost) -> SAFContext: ...
 def record_action(action_id: str, status: str, host: SAFHost) -> None: ...
 ```
 
-That's it. Two functions. One for the pre-message flow (Steps 0–3), one
-for the post-message flow (Step 6).
+That's it. Two functions. One for the pre-message flow (Steps 0–4), one
+for the post-message flow (Step 7).
 
 ### `process()` — the pre-message orchestrator
 
@@ -141,19 +147,22 @@ Input:
   - host: SAFHost             (adapter-provided workspace + logging)
 
 Execution:
-  1. Read system clock → temporal.get_temporal_context()
+  0. Read system clock → temporal.get_temporal_context()
+  1. Filter proactive-actions.json → actions.get_applicable_actions()
   2. Read ledger → ledger.get_today_actions(workspace)
-  3. Regex match → router.get_relevant_domains(message)
-  4. Scan domain directories for .md files (no content reads)
-  5. Compute blocked actions from dedup + user state
-  6. Build instruction strings for the agent
+  3. Apply user-state rules → relevance.check_relevance()
+     + dedup partition → blocked_actions + available_actions
+  4. Regex match → router.get_relevant_domains(message)
+     + scan domain directories for .md files (no content reads)
+  5. Build instruction strings for the agent
 
 Output:
   SAFContext {
     temporal: { ... },               # Step 0 output
-    dedup: { already_done_today },   # Step 1 output
-    candidate_domains: [ ... ],      # Step 2 output
+    dedup: { already_done_today },   # Step 2 output
+    candidate_domains: [ ... ],      # Step 4 output
     blocked_actions: { ... },        # Step 3 output
+    available_actions: [ ... ],      # Step 3 output
     agent_instructions: [ ... ],     # Derived from all of the above
   }
 ```
@@ -232,9 +241,20 @@ Note: `files` contains **filenames only**, not contents. The agent is
 responsible for loading them.
 
 **`blocked_actions`** — `{action_id: reason}` dict of actions the agent
-must not execute:
+must not execute. Possible reason values:
+- `"already_done_daily"` — action already executed today (ledger dedup)
+- `"already_done_weekly"` — action already executed this ISO week
+- `"already_done_today"` — ad-hoc action found in today's ledger
+- `"blocked_by_mode:<mode>"` — action's `skip_modes` includes the
+  current user mode (e.g., `"blocked_by_mode:vacation"`)
+- `"suppressed_by_user"` — action ID listed in `suppressed_actions`
+  in user-state.json
+
 ```python
-{"morning_briefing": "already_done_today"}
+{
+    "morning_briefing": "blocked_by_mode:vacation",
+    "weekly_review": "already_done_weekly",
+}
 ```
 
 **`agent_instructions`** — Human-readable strings the adapter renders

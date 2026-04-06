@@ -53,6 +53,26 @@ class _WorkspaceFixture(unittest.TestCase):
                 f.write(f"# {filename}\n")
         return domain_path
 
+    def _write_registry(self, actions_dict):
+        self.write_config("proactive-actions.json", {"actions": actions_dict})
+
+    def _morning_workday_context(self):
+        """Patch temporal to return a consistent MORNING/workday context."""
+        return patch(
+            "skills.saf_core.lib.temporal.get_temporal_context",
+            return_value={
+                "utc_time": "2026-04-06T08:00:00+00:00",
+                "timezone": "UTC",
+                "local_time": "2026-04-06T08:00:00+00:00",
+                "hour": 8,
+                "day_phase": "MORNING",
+                "day_of_week": "Monday",
+                "day_type": "workday",
+                "iso_date": "2026-04-06",
+                "weekday_number": 0,
+            },
+        )
+
 
 class TestPipelineProcess(_WorkspaceFixture):
     """Tests for pipeline.process() — the core orchestrator."""
@@ -148,26 +168,6 @@ class TestPipelineProcess(_WorkspaceFixture):
 
 class TestPipelineProactiveActions(_WorkspaceFixture):
     """Tests for proactive action registry integration in the pipeline."""
-
-    def _write_registry(self, actions_dict):
-        self.write_config("proactive-actions.json", {"actions": actions_dict})
-
-    def _morning_workday_context(self):
-        """Patch temporal to return a consistent MORNING/workday context."""
-        return patch(
-            "skills.saf_core.lib.temporal.get_temporal_context",
-            return_value={
-                "utc_time": "2026-04-06T08:00:00+00:00",
-                "timezone": "UTC",
-                "local_time": "2026-04-06T08:00:00+00:00",
-                "hour": 8,
-                "day_phase": "MORNING",
-                "day_of_week": "Monday",
-                "day_type": "workday",
-                "iso_date": "2026-04-06",
-                "weekday_number": 0,
-            },
-        )
 
     def test_available_actions_populated_from_registry(self):
         self._write_registry({
@@ -279,6 +279,123 @@ class TestPipelineProactiveActions(_WorkspaceFixture):
         joined = "\n".join(ctx.agent_instructions)
         self.assertIn("morning_briefing", joined)
         self.assertIn("Available proactive actions", joined)
+
+
+class TestPipelineRelevanceGate(_WorkspaceFixture):
+    """Tests for relevance gate integration in the pipeline."""
+
+    def test_vacation_mode_blocks_action_with_skip_modes(self):
+        self.write_config("user-state.json", {"mode": "vacation"})
+        self._write_registry({
+            "morning_briefing": {
+                "description": "Briefing",
+                "trigger": {"phase": ["MORNING"], "day_type": "workday"},
+                "frequency": "daily",
+                "domains": ["work"],
+                "enabled": True,
+                "skip_modes": ["vacation", "dnd"],
+            }
+        })
+        with self._morning_workday_context():
+            ctx = pipeline.process("Hello", self.host)
+        self.assertEqual(ctx.available_actions, [])
+        self.assertIn("morning_briefing", ctx.blocked_actions)
+        self.assertEqual(
+            ctx.blocked_actions["morning_briefing"], "blocked_by_mode:vacation",
+        )
+
+    def test_suppressed_action_blocked_in_pipeline(self):
+        self.write_config("user-state.json", {
+            "suppressed_actions": ["morning_briefing"],
+        })
+        self._write_registry({
+            "morning_briefing": {
+                "description": "Briefing",
+                "trigger": {"phase": ["MORNING"], "day_type": "workday"},
+                "frequency": "daily",
+                "enabled": True,
+            }
+        })
+        with self._morning_workday_context():
+            ctx = pipeline.process("Hello", self.host)
+        self.assertEqual(ctx.available_actions, [])
+        self.assertIn("morning_briefing", ctx.blocked_actions)
+        self.assertEqual(
+            ctx.blocked_actions["morning_briefing"], "suppressed_by_user",
+        )
+
+    def test_relevance_and_dedup_both_apply(self):
+        self.write_config("user-state.json", {"mode": "vacation"})
+        self._write_registry({
+            "morning_briefing": {
+                "description": "Briefing",
+                "trigger": {"phase": ["MORNING"], "day_type": "workday"},
+                "frequency": "daily",
+                "domains": ["work"],
+                "enabled": True,
+                "skip_modes": ["vacation"],
+            },
+            "weekly_review": {
+                "description": "Review",
+                "trigger": {"phase": ["MORNING"], "day_of_week": [0]},
+                "frequency": "weekly",
+                "domains": ["work"],
+                "enabled": True,
+            },
+        })
+        self.write_config("collective-ledger.json", {
+            "last_updated": "2026-04-06T07:00:00Z",
+            "actions": {
+                "weekly_review": {
+                    "agent": "saf",
+                    "timestamp": "2026-04-06T07:00:00Z",
+                    "context": {"status": "sent"},
+                }
+            },
+        })
+        with self._morning_workday_context():
+            ctx = pipeline.process("Hello", self.host)
+        self.assertEqual(ctx.available_actions, [])
+        self.assertEqual(
+            ctx.blocked_actions["morning_briefing"], "blocked_by_mode:vacation",
+        )
+        self.assertEqual(
+            ctx.blocked_actions["weekly_review"], "already_done_weekly",
+        )
+
+    def test_normal_mode_no_regression(self):
+        # No mode set — defaults to "normal", nothing extra blocked
+        self._write_registry({
+            "morning_briefing": {
+                "description": "Briefing",
+                "trigger": {"phase": ["MORNING"], "day_type": "workday"},
+                "frequency": "daily",
+                "enabled": True,
+                "skip_modes": ["vacation"],
+            }
+        })
+        with self._morning_workday_context():
+            ctx = pipeline.process("Hello", self.host)
+        self.assertEqual(len(ctx.available_actions), 1)
+        self.assertEqual(ctx.available_actions[0].id, "morning_briefing")
+        self.assertEqual(ctx.blocked_actions, {})
+
+    def test_instructions_mention_blocked_not_completed(self):
+        self.write_config("user-state.json", {"mode": "vacation"})
+        self._write_registry({
+            "morning_briefing": {
+                "description": "Briefing",
+                "trigger": {"phase": ["MORNING"], "day_type": "workday"},
+                "frequency": "daily",
+                "enabled": True,
+                "skip_modes": ["vacation"],
+            }
+        })
+        with self._morning_workday_context():
+            ctx = pipeline.process("Hello", self.host)
+        joined = "\n".join(ctx.agent_instructions)
+        self.assertIn("blocked actions", joined)
+        self.assertNotIn("already-completed", joined)
 
 
 class TestPipelineRecordAction(_WorkspaceFixture):

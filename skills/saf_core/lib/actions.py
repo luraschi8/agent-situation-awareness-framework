@@ -22,7 +22,7 @@ def load_actions(workspace_root=None):
     return load_json(path, default={"actions": {}})
 
 
-def get_applicable_actions(temporal_ctx, workspace_root=None):
+def get_applicable_actions(temporal_ctx, workspace_root=None, _registry=None):
     """Filter the registry to actions whose triggers match right now.
 
     Trigger evaluation (all conditions AND together, missing = any):
@@ -33,7 +33,7 @@ def get_applicable_actions(temporal_ctx, workspace_root=None):
 
     Returns List[ProactiveAction] sorted by action id for determinism.
     """
-    registry = load_actions(workspace_root)
+    registry = _registry if _registry is not None else load_actions(workspace_root)
     result = []
 
     for action_id, action_def in registry.get("actions", {}).items():

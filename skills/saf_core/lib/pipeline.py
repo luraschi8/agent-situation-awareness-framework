@@ -14,7 +14,7 @@ Architectural guarantees enforced by this module:
 import os
 from typing import List
 
-from skills.saf_core.lib import actions, ledger, paths, router, temporal
+from skills.saf_core.lib import actions, ledger, paths, relevance, router, temporal
 from skills.saf_core.lib.context import DomainCandidate, ProactiveAction, SAFContext
 from skills.saf_core.lib.host import SAFHost
 
@@ -28,8 +28,8 @@ def process(message: str, host: SAFHost) -> SAFContext:
       0. Temporal context (system clock + user-state.json)
       1. Action evaluation (filter registry by trigger conditions)
       2. Dedup lookup (frequency-aware, read collective-ledger.json)
-      3. Domain routing (merge message-matched + action-sourced domains)
-      4. Relevance gate (compute blocked + available actions)
+      3. Relevance gate (user-state filtering + dedup partition)
+      4. Domain routing (merge message-matched + action-sourced domains)
 
     Returns a SAFContext the adapter renders for the agent.
     """
@@ -40,7 +40,10 @@ def process(message: str, host: SAFHost) -> SAFContext:
     today_iso = temporal_ctx["iso_date"]
 
     # Step 1: action evaluation — which registry actions apply right now?
-    applicable = actions.get_applicable_actions(temporal_ctx, workspace)
+    registry = actions.load_actions(workspace)
+    applicable = actions.get_applicable_actions(
+        temporal_ctx, workspace, _registry=registry,
+    )
 
     # Step 2: dedup lookup — single ledger read shared across all checks
     ledger_data = ledger._load_ledger(workspace)
@@ -49,11 +52,18 @@ def process(message: str, host: SAFHost) -> SAFContext:
         today_iso=today_iso,
     )
 
-    # Step 3: partition applicable actions into available vs blocked
+    # Step 3: relevance gate + dedup partition
+    action_defs = registry.get("actions", {})
+    relevance_blocked = relevance.check_relevance(
+        applicable, action_defs, workspace,
+    )
+
     available: List[ProactiveAction] = []
-    blocked: dict = {}
+    blocked = dict(relevance_blocked)
 
     for action in applicable:
+        if action.id in blocked:
+            continue  # already blocked by relevance gate
         if ledger.is_action_done(action.id, action.frequency,
                                  today_iso=today_iso, _ledger=ledger_data):
             blocked[action.id] = f"already_done_{action.frequency}"
@@ -170,7 +180,7 @@ def _build_instructions(
     if blocked:
         blocked_list = ", ".join(blocked.keys())
         instructions.append(
-            f"Do not execute these already-completed actions: {blocked_list}."
+            f"Do not execute these blocked actions: {blocked_list}."
         )
 
     instructions.append(

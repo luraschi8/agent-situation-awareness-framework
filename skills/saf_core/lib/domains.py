@@ -40,6 +40,7 @@ ARCHETYPE_ACTIONS = {
             "frequency": "daily",
             "domains": ["work", "projects"],
             "enabled": True,
+            "skip_modes": ["vacation", "dnd"],
         },
         "weekly_review": {
             "description": "Review the week's accomplishments and plan next week",
@@ -47,6 +48,7 @@ ARCHETYPE_ACTIONS = {
             "frequency": "weekly",
             "domains": ["work", "projects"],
             "enabled": True,
+            "skip_modes": ["vacation"],
         },
     },
     "family": {
@@ -56,6 +58,7 @@ ARCHETYPE_ACTIONS = {
             "frequency": "daily",
             "domains": ["family", "home"],
             "enabled": True,
+            "skip_modes": ["vacation", "dnd"],
         },
         "weekly_meal_plan": {
             "description": "Plan meals for the upcoming week",
@@ -63,6 +66,7 @@ ARCHETYPE_ACTIONS = {
             "frequency": "weekly",
             "domains": ["home"],
             "enabled": True,
+            "skip_modes": ["vacation"],
         },
     },
 }

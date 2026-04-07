@@ -43,8 +43,12 @@ def install(target_dir: str, run_bootstrap: bool) -> int:
             print("WARNING: saf-init did not complete successfully.")
             return result.returncode
 
+    saf_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     print("\nSAF OpenClaw adapter installed.")
-    print("Enable the hooks with: openclaw hooks enable saf-bootstrap saf-pre-message saf-post-message")
+    print(f"\nSet SAF_ROOT so hooks can find the SAF codebase:")
+    print(f"  export SAF_ROOT={saf_root}")
+    print("\nEnable the hooks with:")
+    print("  openclaw hooks enable saf-bootstrap saf-pre-message saf-post-message")
     return 0
 
 

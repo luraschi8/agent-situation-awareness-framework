@@ -3,6 +3,13 @@
 Writes the initial SAF briefing and registers it with bootstrapFiles.
 """
 
+import os
+import sys
+
+_saf_root = os.environ.get("SAF_ROOT", os.getcwd())
+if _saf_root not in sys.path:
+    sys.path.insert(0, _saf_root)
+
 from skills.saf_openclaw.adapter import OpenClawAdapter
 
 
